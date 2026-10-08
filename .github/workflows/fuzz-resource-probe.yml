@@ -1,0 +1,92 @@
+name: Fuzz workspace resource probe (fork only)
+
+on:
+  push:
+    branches: [test/fuzz-workspace-resources-20261008]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-resource-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    if: github.repository == 'robustfengbin/zebra'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        revision: [baseline, integrated]
+        mode: [clippy-release, clippy-tests, hack]
+        include:
+          - revision: integrated
+            mode: crate
+          - revision: integrated
+            mode: msrv
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_TERM_COLOR: never
+      RUST_BACKTRACE: '1'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: probe
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: robustfengbin/zebra
+          ref: ${{ matrix.revision == 'baseline' && 'b039bb0d153308fa20548e2907d12d749f67cb42' || '295d3c107d38c49797f658b551e2be830cfd9055' }}
+          path: source
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
+        with:
+          toolchain: ${{ matrix.mode == 'msrv' && '1.88.0' || (matrix.mode == 'hack' && '1.91.0' || '1.97.0') }}
+          components: clippy
+          cache: false
+      - uses: taiki-e/install-action@65851e10cd6c377f11a60e600abc07cb08643468
+        if: matrix.mode == 'hack'
+        with:
+          tool: cargo-hack
+      - uses: ./source/.github/actions/setup-zebra-build
+      - name: Cold build (no restored build cache)
+        working-directory: source
+        env:
+          PROBE_MODE: ${{ matrix.mode }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/fuzz-resource-results"
+          git rev-parse HEAD
+          rustc -Vv
+          df -h .
+          free -h
+          python3 ../probe/.github/scripts/fuzz-resource-measure.py \
+            "$RUNNER_TEMP/fuzz-resource-results/cold" \
+            bash ../probe/.github/scripts/fuzz-resource-commands.sh "$PROBE_MODE"
+      - name: Warm repeat (same source, same runner, no-op lower bound)
+        working-directory: source
+        env:
+          PROBE_MODE: ${{ matrix.mode }}
+        run: |
+          python3 ../probe/.github/scripts/fuzz-resource-measure.py \
+            "$RUNNER_TEMP/fuzz-resource-results/warm" \
+            bash ../probe/.github/scripts/fuzz-resource-commands.sh "$PROBE_MODE"
+      - name: Publish measurements to job log and summary
+        if: always()
+        shell: bash
+        run: |
+          for result in "$RUNNER_TEMP"/fuzz-resource-results/*.json; do
+            if [ -f "$result" ]; then
+              cat "$result"
+              { echo '```json'; cat "$result"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+      - name: Retain measurements (including failed builds)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: resources-${{ matrix.revision }}-${{ matrix.mode }}
+          path: ${{ runner.temp }}/fuzz-resource-results/
+          retention-days: 7
