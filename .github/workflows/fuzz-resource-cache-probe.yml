@@ -1,0 +1,104 @@
+name: Fuzz workspace cache restore probe (fork only)
+
+on:
+  push:
+    branches: [test/fuzz-workspace-cache-20261008]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-resource-cache-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUSTUP_TOOLCHAIN: 1.97.0
+  CARGO_INCREMENTAL: '0'
+  CARGO_TERM_COLOR: never
+  RUST_BACKTRACE: '1'
+
+jobs:
+  seed:
+    if: github.repository == 'robustfengbin/zebra'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        revision: [baseline, integrated]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: probe
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: robustfengbin/zebra
+          ref: ${{ matrix.revision == 'baseline' && 'b039bb0d153308fa20548e2907d12d749f67cb42' || '295d3c107d38c49797f658b551e2be830cfd9055' }}
+          path: source
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
+        with:
+          toolchain: 1.97.0
+          components: clippy
+          rust-src-dir: source
+          cache-shared-key: fuzz-resource-${{ github.run_id }}-${{ matrix.revision }}
+          cache-on-failure: false
+          cache-save-if: true
+      - uses: ./source/.github/actions/setup-zebra-build
+      - name: Seed the same dependency cache used by workspace Clippy
+        working-directory: source
+        env:
+          PROBE_CACHE_CONTEXT: Fresh unique cache key; seed saved by setup action post step
+        run: |
+          python3 ../probe/.github/scripts/fuzz-resource-measure.py \
+            "$RUNNER_TEMP/fuzz-resource-results/cold" \
+            bash ../probe/.github/scripts/fuzz-resource-commands.sh clippy-tests
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: resources-${{ matrix.revision }}-cache-seed
+          path: ${{ runner.temp }}/fuzz-resource-results/
+          retention-days: 7
+
+  restored:
+    needs: seed
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        revision: [baseline, integrated]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: probe
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: robustfengbin/zebra
+          ref: ${{ matrix.revision == 'baseline' && 'b039bb0d153308fa20548e2907d12d749f67cb42' || '295d3c107d38c49797f658b551e2be830cfd9055' }}
+          path: source
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
+        with:
+          toolchain: 1.97.0
+          components: clippy
+          rust-src-dir: source
+          cache-shared-key: fuzz-resource-${{ github.run_id }}-${{ matrix.revision }}
+          cache-save-if: false
+      - uses: ./source/.github/actions/setup-zebra-build
+      - name: Rebuild workspace after cache restoration on a fresh runner
+        working-directory: source
+        env:
+          PROBE_CACHE_CONTEXT: Fresh runner with dependency cache from seed job; verify hit in setup logs
+        run: |
+          python3 ../probe/.github/scripts/fuzz-resource-measure.py \
+            "$RUNNER_TEMP/fuzz-resource-results/warm" \
+            bash ../probe/.github/scripts/fuzz-resource-commands.sh clippy-tests
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: resources-${{ matrix.revision }}-cache-restored
+          path: ${{ runner.temp }}/fuzz-resource-results/
+          retention-days: 7

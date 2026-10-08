@@ -80,8 +80,9 @@ def main():
         'disk_minimum_free_bytes': minimum_free,
         'disk_free_after_bytes': shutil.disk_usage('.').free,
         'directory_sizes_before': sizes_before, 'directory_sizes_after': sizes(),
+        'cache_context': os.environ.get('PROBE_CACHE_CONTEXT', 'No Actions cache restored or saved'),
         'limitations': 'Host memory/disk include background activity; sampled every 1s. '
-                       'No Actions cache restored or saved. Warm is identical-source repeat. '
+                       'See cache_context for restore mode. Warm is identical-source repeat. '
                        'Child maxrss is not summed simultaneous memory.',
     }
     prefix.with_suffix('.json').write_text(json.dumps(result, indent=2) + '\n')
