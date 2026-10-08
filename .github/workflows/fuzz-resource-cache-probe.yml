@@ -12,9 +12,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Normalize installed toolchains in this diagnostic only: rust-cache hashes
-  # every installed Rust version, including the runner image's unused stable.
-  RUSTUP_HOME: ${{ runner.temp }}/fuzz-probe-rustup
   RUSTUP_TOOLCHAIN: 1.97.0
   CARGO_INCREMENTAL: '0'
   CARGO_TERM_COLOR: never
@@ -30,6 +27,9 @@ jobs:
       matrix:
         revision: [baseline, integrated]
     steps:
+      # rust-cache hashes all installed toolchains; isolate the runner's stable.
+      - name: Select isolated toolchain directory
+        run: echo "RUSTUP_HOME=$RUNNER_TEMP/fuzz-probe-rustup" >> "$GITHUB_ENV"
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           path: probe
@@ -73,6 +73,8 @@ jobs:
       matrix:
         revision: [baseline, integrated]
     steps:
+      - name: Select isolated toolchain directory
+        run: echo "RUSTUP_HOME=$RUNNER_TEMP/fuzz-probe-rustup" >> "$GITHUB_ENV"
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           path: probe
