@@ -12,6 +12,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # Normalize installed toolchains in this diagnostic only: rust-cache hashes
+  # every installed Rust version, including the runner image's unused stable.
+  RUSTUP_HOME: ${{ runner.temp }}/fuzz-probe-rustup
   RUSTUP_TOOLCHAIN: 1.97.0
   CARGO_INCREMENTAL: '0'
   CARGO_TERM_COLOR: never
