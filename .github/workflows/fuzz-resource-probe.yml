@@ -28,6 +28,9 @@ jobs:
           - revision: integrated
             mode: msrv
     env:
+      # The source checkout is nested: its rust-toolchain.toml would otherwise
+      # override the setup action's selection made in the outer directory.
+      RUSTUP_TOOLCHAIN: ${{ matrix.mode == 'msrv' && '1.88.0' || (matrix.mode == 'hack' && '1.91.0' || '1.97.0') }}
       CARGO_INCREMENTAL: '0'
       CARGO_TERM_COLOR: never
       RUST_BACKTRACE: '1'
